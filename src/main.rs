@@ -26,6 +26,8 @@ struct AudioCue {
 pub trait MqttExt {
     fn notify_track_change(&self, track_name: &str);
     fn notify_audio_cue(&self, track_name: &str, cue_data: &str);
+    fn set_simulated(&self);
+    fn set_real(&self);
 }
 
 impl MqttExt for mqtt::AsyncClient {
@@ -60,6 +62,32 @@ impl MqttExt for mqtt::AsyncClient {
 
         println!("to MQTT: Audio Cue on {} => \"{}\"", track_name, cue_data);
     }
+
+    fn set_simulated(&self) {
+        //Construct payload
+        let payload_str = String::from("{\"environment\":\"simulated\"}");
+
+        let msg = mqtt::Message::new("audioEngine/environment", payload_str, mqtt::QOS_2);
+        let tok = self.publish(msg);
+        if let Err(e) = tok.wait() {
+            println!("Error sending message: {:?}", e);
+        }
+
+        println!("to MQTT: Use Simulated Environment");
+    }
+
+    fn set_real(&self) {
+        //Construct payload
+        let payload_str = String::from("{\"environment\":\"real\"}");
+
+        let msg = mqtt::Message::new("audioEngine/environment", payload_str, mqtt::QOS_2);
+        let tok = self.publish(msg);
+        if let Err(e) = tok.wait() {
+            println!("Error sending message: {:?}", e);
+        }
+
+        println!("to MQTT: Use Real Environment");
+    }
 }
 
 fn main() {
@@ -69,21 +97,25 @@ fn main() {
     let mqtt_host = String::from("192.168.1.219:1883");
     let mqtt_client = connect_to_mqtt_server(&mqtt_host).expect("Failed to connect to MQTT Broker");
 
-    let mut playlist : VecDeque<TrackInfo> = VecDeque::new();
-    // playlist.push_back(TrackInfo {track_name: String::from("Spooky Story"), track_file: String::from("sounds/spooky_story.ogg")});
-    // playlist.push_back(TrackInfo {track_name: String::from("Next Up Forever"), track_file: String::from("sounds/01 - Next Up Forever.flac")});
-    // playlist.push_back(TrackInfo {track_name: String::from("Birthday Party"), track_file: String::from("sounds/02 - Birthday Party.flac")});
-    // playlist.push_back(TrackInfo {track_name: String::from("Test One"), track_file: String::from("sounds/one.ogg")});
-    // playlist.push_back(TrackInfo {track_name: String::from("Test Two"), track_file: String::from("sounds/two.ogg")});
-    // playlist.push_back(TrackInfo {track_name: String::from("Test Three"), track_file: String::from("sounds/three.ogg")});
-    // playlist.push_back(TrackInfo {track_name: String::from("Test Four"), track_file: String::from("sounds/four.ogg")});
+    mqtt_client.set_simulated();
+    // mqtt_client.set_real();
 
-    // playlist.push_back(TrackInfo {track_name: String::from("Scary Children"), track_file: String::from("sounds/scary_children.ogg"), fade_in_secs: 2,
-    //     audio_cues: VecDeque::from(vec![])   
-    // }); //done
-    // playlist.push_back(TrackInfo {track_name: String::from("Howling Wind"), track_file: String::from("sounds/howling_wind.ogg"), fade_in_secs: 6,
-    //     audio_cues: VecDeque::from(vec![])   
-    // }); //done
+    let mut playlist : VecDeque<TrackInfo> = VecDeque::new();
+
+    playlist.push_back(TrackInfo {track_name: String::from("delay"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
+        audio_cues: VecDeque::from(vec![])   
+    }); //delay to run outside
+
+    playlist.push_back(TrackInfo {track_name: String::from("preshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
+        audio_cues: VecDeque::from(vec![AudioCue {millis: 22000, mqtt_data: String::from("blackout")}])   
+    }); //start recording 15s after tree turns on
+
+    playlist.push_back(TrackInfo {track_name: String::from("Scary Children"), track_file: String::from("sounds/scary_children.ogg"), fade_in_secs: 8,
+        audio_cues: VecDeque::from(vec![])   
+    }); //done
+    playlist.push_back(TrackInfo {track_name: String::from("Howling Wind"), track_file: String::from("sounds/howling_wind.ogg"), fade_in_secs: 6,
+        audio_cues: VecDeque::from(vec![])   
+    }); //done
     playlist.push_back(TrackInfo {track_name: String::from("Church Tower Tolling"), track_file: String::from("sounds/church_tower_tolling_new.ogg"), fade_in_secs: 1,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 22000, mqtt_data: String::from("tolling stopped")}])   
     }); //done
@@ -136,6 +168,10 @@ fn main() {
         audio_cues: VecDeque::from(vec![])   
     }); //done
 
+    playlist.push_back(TrackInfo {track_name: String::from("postshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
+        audio_cues: VecDeque::from(vec![])   
+    }); //return to normal after show
+
     // Get a output stream handle to the default physical sound device
     let (_stream, stream_handle) = rodio::OutputStream::try_default().expect("Failed ot get access to default audio device.");
     let sink = rodio::Sink::try_new(&stream_handle).expect("Failed to create Audio Sink on default audio device.");
@@ -156,7 +192,7 @@ fn main() {
             let track_info = playlist.pop_front().unwrap();
 
             //requeue at the end of the playlist
-            playlist.push_back(track_info.clone());
+            // playlist.push_back(track_info.clone());
             
             // millis_accumulator = 0;
             
@@ -179,7 +215,6 @@ fn main() {
                     mqtt_client.notify_audio_cue(&current_track_name, &cue.mqtt_data);
                     //grab next cue
                     next_audio_cue = audio_cues.pop_front();
-                    
                 }
             },
             None => {}
