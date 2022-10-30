@@ -6,6 +6,8 @@ use paho_mqtt as mqtt;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use rodio::Source;
+use std::thread;
+use std::sync::Arc;
 
 //////////////////////////////////////////////////////////////////////////
 #[derive(Clone)]
@@ -113,9 +115,32 @@ fn main() {
     }
 
     let mqtt_client = connect_to_mqtt_server(&mqtt_host, &mqtt_user, &mqtt_pass).expect("Failed to connect to MQTT Broker");
+    
+    // Message receiver
+    let rx = mqtt_client.start_consuming();
 
-    mqtt_client.set_simulated();
-    // mqtt_client.set_real();
+    // Subscribe to a topic
+    mqtt_client.subscribe(String::from("audioEngine/input"), 0);
+ 
+    // Get a output stream handle to the default physical sound device
+    let (_stream, stream_handle) = rodio::OutputStream::try_default().expect("Failed ot get access to default audio device.");
+    let arc_stream_handle = Arc::new(stream_handle);
+
+    // Start waiting for messages
+    let clone_stream_handle = arc_stream_handle.clone();
+    let _mqtt_reader = thread::spawn(move || {
+        loop {
+        match rx.recv().expect("Error receiving message") {
+            Some(_message) => {
+                do_doorbell_event(&clone_stream_handle);
+            }
+            None => {}
+            }
+        }
+    });
+
+    // mqtt_client.set_simulated();
+    mqtt_client.set_real();
 
     let mut playlist : VecDeque<TrackInfo> = VecDeque::new();
 
@@ -129,27 +154,27 @@ fn main() {
 
     playlist.push_back(TrackInfo {track_name: String::from("Scary Children"), track_file: String::from("sounds/scary_children.ogg"), fade_in_secs: 8,
         audio_cues: VecDeque::from(vec![])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Howling Wind"), track_file: String::from("sounds/howling_wind.ogg"), fade_in_secs: 6,
         audio_cues: VecDeque::from(vec![])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Church Tower Tolling"), track_file: String::from("sounds/church_tower_tolling_new.ogg"), fade_in_secs: 1,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 22000, mqtt_data: String::from("tolling stopped")}])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Church Tower Tolling"), track_file: String::from("sounds/church_tower_tolling_new.ogg"), fade_in_secs: 1,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 22000, mqtt_data: String::from("tolling stopped")}])   
     }); //double down
     playlist.push_back(TrackInfo {track_name: String::from("Two Weeks and Counting"), track_file: String::from("sounds/two_weeks_and_counting.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Spooky Story"), track_file: String::from("sounds/spooky_story.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Sinister Organ"), track_file: String::from("sounds/sinister_organ_short.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 60500, mqtt_data: String::from("thunder")},
                                         AudioCue {millis: 99000, mqtt_data: String::from("heavy thunder")},
                                         AudioCue {millis: 119500, mqtt_data: String::from("storm")}])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Ghost Twins Singing"), track_file: String::from("sounds/ghost_twins_singing.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 0, mqtt_data: String::from("up")},
                                         AudioCue {millis: 14500, mqtt_data: String::from("down")},
@@ -157,32 +182,31 @@ fn main() {
                                         AudioCue {millis: 31500, mqtt_data: String::from("down")},
                                         AudioCue {millis: 34500, mqtt_data: String::from("up")},
                                         AudioCue {millis: 48000, mqtt_data: String::from("down")}])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Heartbeat"), track_file: String::from("sounds/heartbeat.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 10000, mqtt_data: String::from("1")},
                                         AudioCue {millis: 19000, mqtt_data: String::from("2")},
                                         AudioCue {millis: 26000, mqtt_data: String::from("3")},
                                         AudioCue {millis: 30000, mqtt_data: String::from("4")}])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Marleys Footsteps"), track_file: String::from("sounds/marleys_footsteps.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 49500, mqtt_data: String::from("door")},
                                         AudioCue {millis: 54500, mqtt_data: String::from("silent")},
                                         AudioCue {millis: 55750, mqtt_data: String::from("scream")}])     
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Michael Attacks"), track_file: String::from("sounds/michael_attacks.ogg"), fade_in_secs: 1,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 700, mqtt_data: String::from("start")}])   
-    }); //done
+    });
     playlist.push_back(TrackInfo {track_name: String::from("Toccata and Fugue"), track_file: String::from("sounds/toccata_and_fugue.ogg"), fade_in_secs: 0,
         audio_cues: VecDeque::from(vec![])   
-    }); //done
+    });
 
     // playlist.push_back(TrackInfo {track_name: String::from("postshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
     //     audio_cues: VecDeque::from(vec![])   
     // }); //return to normal after show
 
-    // Get a output stream handle to the default physical sound device
-    let (_stream, stream_handle) = rodio::OutputStream::try_default().expect("Failed ot get access to default audio device.");
-    let sink = rodio::Sink::try_new(&stream_handle).expect("Failed to create Audio Sink on default audio device.");
+    let sink = rodio::Sink::try_new(&arc_stream_handle.clone()).expect("Failed to create Audio Sink on default audio device.");
+    sink.set_volume(0.33); //Turn down the music sink so the sfx play louder by comparison
 
     // let mut millis_accumulator = 0;
     let mut track_start_time = Instant::now();
@@ -249,6 +273,19 @@ fn connect_to_mqtt_server(broker_address : &str, mqtt_user : &str, mqtt_pass : &
     }
 
     Ok(mqtt_client)
+}
+
+fn do_doorbell_event(stream_handle : &Arc<rodio::OutputStreamHandle>) {
+    println!("Doorbell Event");
+
+    // let (_stream, stream_handle) = rodio::OutputStream::try_default().expect("Failed ot get access to default audio device.");
+    // let sink = rodio::Sink::try_new(&stream_handle).expect("Failed to create Audio Sink on default audio device.");
+
+    let file = BufReader::new(File::open(String::from("sounds/witch_cackle.mp3")).unwrap());
+    let sndfx = stream_handle.play_once(BufReader::new(file)).unwrap();
+    sndfx.detach();
+    // let music_source = rodio::Decoder::new(file).unwrap();
+    // sink.append(music_source);
 }
 
 fn get_app_config() -> HashMap<String, String> {
