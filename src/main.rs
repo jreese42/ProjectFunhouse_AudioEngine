@@ -22,7 +22,7 @@ struct AudioCue {
     mqtt_data: String,
 }
 
-/* For simplicity in the code, add a trait extension to mqtt_client which allows queuing the exact message's we'll use */
+/* For simplicity in the code, add a trait extension to mqtt_client which allows queuing the exact messages we'll use */
 pub trait MqttExt {
     fn notify_track_change(&self, track_name: &str);
     fn notify_audio_cue(&self, track_name: &str, cue_data: &str);
@@ -94,21 +94,38 @@ fn main() {
     let mut app_config = get_app_config();
     println!("{}", app_config.entry(String::from("soundsDirectory")).or_default());
 
-    let mqtt_host = String::from("192.168.1.219:1883");
-    let mqtt_client = connect_to_mqtt_server(&mqtt_host).expect("Failed to connect to MQTT Broker");
+    let mqtt_host : String;
+    match env::var("MQTT_HOST") {
+        Ok(val) => mqtt_host = val,
+        Err(_e) => mqtt_host = "".to_string(),
+    }
+
+    let mqtt_user : String;
+    match env::var("MQTT_USER") {
+        Ok(val) => mqtt_user = val,
+        Err(_e) => mqtt_user = "".to_string(),
+    }
+
+    let mqtt_pass : String;
+    match env::var("MQTT_PASS") {
+        Ok(val) => mqtt_pass = val,
+        Err(_e) => mqtt_pass = "".to_string(),
+    }
+
+    let mqtt_client = connect_to_mqtt_server(&mqtt_host, &mqtt_user, &mqtt_pass).expect("Failed to connect to MQTT Broker");
 
     mqtt_client.set_simulated();
     // mqtt_client.set_real();
 
     let mut playlist : VecDeque<TrackInfo> = VecDeque::new();
 
-    playlist.push_back(TrackInfo {track_name: String::from("delay"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
-        audio_cues: VecDeque::from(vec![])   
-    }); //delay to run outside
+    // playlist.push_back(TrackInfo {track_name: String::from("delay"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
+    //     audio_cues: VecDeque::from(vec![])   
+    // }); //delay to run outside
 
-    playlist.push_back(TrackInfo {track_name: String::from("preshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
-        audio_cues: VecDeque::from(vec![AudioCue {millis: 22000, mqtt_data: String::from("blackout")}])   
-    }); //start recording 15s after tree turns on
+    // playlist.push_back(TrackInfo {track_name: String::from("preshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
+    //     audio_cues: VecDeque::from(vec![AudioCue {millis: 22000, mqtt_data: String::from("blackout")}])   
+    // }); //start recording 15s after tree turns on
 
     playlist.push_back(TrackInfo {track_name: String::from("Scary Children"), track_file: String::from("sounds/scary_children.ogg"), fade_in_secs: 8,
         audio_cues: VecDeque::from(vec![])   
@@ -147,9 +164,6 @@ fn main() {
                                         AudioCue {millis: 26000, mqtt_data: String::from("3")},
                                         AudioCue {millis: 30000, mqtt_data: String::from("4")}])   
     }); //done
-    // playlist.push_back(TrackInfo {track_name: String::from("Ghostly Voices"), track_file: String::from("sounds/ghostly_voices.ogg"), fade_in_secs: 2,
-    //     audio_cues: VecDeque::from(vec![])   
-    // }); //skip?
     playlist.push_back(TrackInfo {track_name: String::from("Marleys Footsteps"), track_file: String::from("sounds/marleys_footsteps.ogg"), fade_in_secs: 2,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 49500, mqtt_data: String::from("door")},
                                         AudioCue {millis: 54500, mqtt_data: String::from("silent")},
@@ -158,19 +172,13 @@ fn main() {
     playlist.push_back(TrackInfo {track_name: String::from("Michael Attacks"), track_file: String::from("sounds/michael_attacks.ogg"), fade_in_secs: 1,
         audio_cues: VecDeque::from(vec![AudioCue {millis: 700, mqtt_data: String::from("start")}])   
     }); //done
-    // playlist.push_back(TrackInfo {track_name: String::from("Demonic Worship"), track_file: String::from("sounds/demonic_worship.ogg"), fade_in_secs: 2,
-    //     audio_cues: VecDeque::from(vec![])   
-    // }); //skip?
-    // playlist.push_back(TrackInfo {track_name: String::from("The Alligator"), track_file: String::from("sounds/the_alligator.ogg"), fade_in_secs: 2,
-    //     audio_cues: VecDeque::from(vec![])   
-    // }); //skip?
     playlist.push_back(TrackInfo {track_name: String::from("Toccata and Fugue"), track_file: String::from("sounds/toccata_and_fugue.ogg"), fade_in_secs: 0,
         audio_cues: VecDeque::from(vec![])   
     }); //done
 
-    playlist.push_back(TrackInfo {track_name: String::from("postshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
-        audio_cues: VecDeque::from(vec![])   
-    }); //return to normal after show
+    // playlist.push_back(TrackInfo {track_name: String::from("postshow"), track_file: String::from("sounds/silence_30s.ogg"), fade_in_secs: 2,
+    //     audio_cues: VecDeque::from(vec![])   
+    // }); //return to normal after show
 
     // Get a output stream handle to the default physical sound device
     let (_stream, stream_handle) = rodio::OutputStream::try_default().expect("Failed ot get access to default audio device.");
@@ -192,7 +200,7 @@ fn main() {
             let track_info = playlist.pop_front().unwrap();
 
             //requeue at the end of the playlist
-            // playlist.push_back(track_info.clone());
+            playlist.push_back(track_info.clone());
             
             // millis_accumulator = 0;
             
@@ -225,13 +233,14 @@ fn main() {
 
 }
 
-fn connect_to_mqtt_server(broker_address : &str) -> Result<mqtt::AsyncClient, paho_mqtt::Error> {
+fn connect_to_mqtt_server(broker_address : &str, mqtt_user : &str, mqtt_pass : &str) -> Result<mqtt::AsyncClient, paho_mqtt::Error> {
     // Create the MQTT client
     println!("Connecting to MQTT Broker at {}", broker_address);
+
     let mqtt_client = mqtt::AsyncClient::new(broker_address)?;
     let conn_opts = mqtt::ConnectOptionsBuilder::new()
-        .user_name(String::from("granbywled"))
-        .password(String::from("vthokies"))
+        .user_name(mqtt_user)
+        .password(mqtt_pass)
         .finalize();
     // Connect and wait for it to complete or fail
     if let Err(e) = mqtt_client.connect(conn_opts).wait() {
